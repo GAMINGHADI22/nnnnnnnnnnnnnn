@@ -5,7 +5,7 @@ from discord.ext import commands
 import wavelink
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-LAVALINK_URL = os.getenv("LAVALINK_URL")  # example: https://your-app.up.railway.app
+LAVALINK_URL = os.getenv("LAVALINK_URL")
 LAVALINK_PASSWORD = os.getenv("LAVALINK_PASSWORD") or "youshallnotpass"
 
 intents = discord.Intents.default()
@@ -14,33 +14,33 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 queues = {}
 
-
+# 🔥 UI BUTTON
 class MusicButtons(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Pause", emoji="⏸", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="⏸", style=discord.ButtonStyle.primary)
     async def pause(self, interaction: discord.Interaction, button: discord.ui.Button):
         player = interaction.guild.voice_client
         if player:
             await player.pause(True)
             await interaction.response.send_message("⏸ Paused", ephemeral=True)
 
-    @discord.ui.button(label="Resume", emoji="▶️", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="▶️", style=discord.ButtonStyle.success)
     async def resume(self, interaction: discord.Interaction, button: discord.ui.Button):
         player = interaction.guild.voice_client
         if player:
             await player.pause(False)
             await interaction.response.send_message("▶️ Resumed", ephemeral=True)
 
-    @discord.ui.button(label="Skip", emoji="⏭", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="⏭", style=discord.ButtonStyle.secondary)
     async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
         player = interaction.guild.voice_client
         if player:
             await player.stop()
             await interaction.response.send_message("⏭ Skipped", ephemeral=True)
 
-    @discord.ui.button(label="Stop", emoji="🛑", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="🛑", style=discord.ButtonStyle.danger)
     async def stop(self, interaction: discord.Interaction, button: discord.ui.Button):
         player = interaction.guild.voice_client
         queues[interaction.guild.id] = []
@@ -48,8 +48,8 @@ class MusicButtons(discord.ui.View):
             await player.disconnect()
             await interaction.response.send_message("🛑 Stopped", ephemeral=True)
 
-
-async def play_next(guild: discord.Guild, channel: discord.TextChannel):
+# 🔥 NEXT SONG
+async def play_next(guild, channel):
     player: wavelink.Player = guild.voice_client
     q = queues.get(guild.id, [])
 
@@ -65,25 +65,33 @@ async def play_next(guild: discord.Guild, channel: discord.TextChannel):
         description=f"**{track.title}**",
         color=0x8A2BE2
     )
-    embed.set_footer(text="Music Bot • Lavalink")
     await channel.send(embed=embed, view=MusicButtons())
 
-
+# 🔥 FIXED CONNECT
 @bot.event
 async def on_ready():
-    node = wavelink.Node(uri=LAVALINK_URL, password=LAVALINK_PASSWORD)
-    await wavelink.Pool.connect(client=bot, nodes=[node])
+    print(f"✅ Logged in as {bot.user}")
+
+    try:
+        node = wavelink.Node(
+            uri=LAVALINK_URL,
+            password=LAVALINK_PASSWORD
+        )
+        await wavelink.Pool.connect(client=bot, nodes=[node])
+        print("✅ Lavalink Connected")
+    except Exception as e:
+        print(f"❌ Lavalink Error: {e}")
 
     await bot.tree.sync()
-    print(f"✅ Logged in as {bot.user}")
     print("✅ Slash commands synced")
 
-
-@bot.tree.command(name="play", description="Play song / YouTube link / playlist")
-@app_commands.describe(query="Song name, YouTube link, or playlist link")
+# 🔥 PLAY
+@bot.tree.command(name="play", description="Play music")
+@app_commands.describe(query="Song or YouTube link")
 async def play(interaction: discord.Interaction, query: str):
+
     if not interaction.user.voice:
-        return await interaction.response.send_message("❌ Age voice channel e join koro.", ephemeral=True)
+        return await interaction.response.send_message("❌ Join VC first", ephemeral=True)
 
     await interaction.response.defer()
 
@@ -96,54 +104,36 @@ async def play(interaction: discord.Interaction, query: str):
     tracks = await wavelink.Playable.search(query)
 
     if not tracks:
-        return await interaction.followup.send("❌ Kono song/playlist pailam na.")
+        return await interaction.followup.send("❌ No result")
 
     if isinstance(tracks, wavelink.Playlist):
-        for track in tracks.tracks:
-            queues[interaction.guild.id].append(track)
+        for t in tracks.tracks:
+            queues[interaction.guild.id].append(t)
 
-        await interaction.followup.send(f"✅ Playlist add holo: **{len(tracks.tracks)}** songs")
+        await interaction.followup.send(f"✅ Playlist add: {len(tracks.tracks)} songs")
     else:
         track = tracks[0]
         queues[interaction.guild.id].append(track)
-        await interaction.followup.send(f"✅ Queue te add holo: **{track.title}**")
+        await interaction.followup.send(f"✅ Added: {track.title}")
 
     if not player.playing:
         await play_next(interaction.guild, interaction.channel)
 
-
-@bot.tree.command(name="skip", description="Skip current song")
+# 🔥 SKIP
+@bot.tree.command(name="skip")
 async def skip(interaction: discord.Interaction):
     player = interaction.guild.voice_client
     if player:
         await player.stop()
         await interaction.response.send_message("⏭ Skipped")
-    else:
-        await interaction.response.send_message("❌ Bot voice e nai.", ephemeral=True)
 
-
-@bot.tree.command(name="queue", description="Show queue")
-async def queue(interaction: discord.Interaction):
-    q = queues.get(interaction.guild.id, [])
-
-    if not q:
-        return await interaction.response.send_message("📭 Queue empty.")
-
-    text = "\n".join([f"**{i}.** {t.title}" for i, t in enumerate(q[:10], 1)])
-
-    embed = discord.Embed(title="🎵 Queue", description=text, color=0x8A2BE2)
-    await interaction.response.send_message(embed=embed)
-
-
-@bot.tree.command(name="stop", description="Stop music")
+# 🔥 STOP
+@bot.tree.command(name="stop")
 async def stop(interaction: discord.Interaction):
     queues[interaction.guild.id] = []
     player = interaction.guild.voice_client
-
     if player:
         await player.disconnect()
-
-    await interaction.response.send_message("🛑 Stopped & disconnected")
-
+    await interaction.response.send_message("🛑 Stopped")
 
 bot.run(TOKEN)
